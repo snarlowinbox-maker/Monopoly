@@ -13,7 +13,6 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Optional: serve built client in production
 const clientDist = path.resolve(__dirname, '../../client/dist');
 app.use(express.static(clientDist));
 
@@ -22,22 +21,19 @@ const io = new SocketIOServer(server, {
   cors: { origin: '*', methods: ['GET', 'POST'] },
 });
 
-/** In-memory room storage (fine for 3-player indie scale; swap for Redis for scale). */
 const rooms = new Map<string, Room>();
-/** socketId -> {roomCode, playerId} */
 const sessions = new Map<string, { roomCode: string; playerId: string }>();
 
 function genCode(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let s = '';
-  do { s = ''; for (let i=0;i<6;i++) s += chars[Math.floor(Math.random()*chars.length)]; }
+  do { s = ''; for (let i = 0; i < 6; i++) s += chars[Math.floor(Math.random() * chars.length)]; }
   while (rooms.has(s));
   return s;
 }
 
 function broadcastState(room: Room) {
-  const state = room.state();
-  io.to(room.code).emit('state', state);
+  io.to(room.code).emit('state', room.state());
 }
 
 function emitEvent(room: Room, evt: any) {
@@ -72,10 +68,6 @@ io.on('connection', (socket: Socket) => {
     } catch (e: any) { cb({ ok: false, error: e.message }); }
   });
 
-  /** Auto-guard helper — resolves the caller's real player ID from the session,
-   *  then runs the action against the room this socket is in.
-   *  (Fixed: previously we passed socket.id, which never matched the player's
-   *  internal id, so every action threw "Not your turn".) */
   const withRoom = (fn: (room: Room, playerId: string) => void) => {
     const s = sessions.get(socket.id);
     if (!s) return socket.emit('error', 'Not in a room');
@@ -115,7 +107,6 @@ io.on('connection', (socket: Socket) => {
     room.disconnectPlayer(s.playerId);
     broadcastState(room);
     sessions.delete(socket.id);
-    // Clean empty rooms after a short delay
     setTimeout(() => {
       if (room.state().players.every(p => !p.connected)) rooms.delete(room.code);
     }, 60_000);
