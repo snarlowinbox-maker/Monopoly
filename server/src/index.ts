@@ -72,35 +72,39 @@ io.on('connection', (socket: Socket) => {
     } catch (e: any) { cb({ ok: false, error: e.message }); }
   });
 
-  /** Auto-guard helper — runs an action against the room this socket is in. */
-  const withRoom = (fn: (room: Room) => void) => {
+  /** Auto-guard helper — resolves the caller's real player ID from the session,
+   *  then runs the action against the room this socket is in.
+   *  (Fixed: previously we passed socket.id, which never matched the player's
+   *  internal id, so every action threw "Not your turn".) */
+  const withRoom = (fn: (room: Room, playerId: string) => void) => {
     const s = sessions.get(socket.id);
     if (!s) return socket.emit('error', 'Not in a room');
     const room = rooms.get(s.roomCode);
     if (!room) return socket.emit('error', 'Room not found');
     try {
-      fn(room);
+      fn(room, s.playerId);
       broadcastState(room);
     } catch (e: any) {
+      console.error('[action error]', e.message || e);
       socket.emit('error', e.message || 'Action failed');
     }
   };
 
-  socket.on('startGame', () => withRoom(r => r.start(socket.id)));
-  socket.on('roll', () => withRoom(r => r.roll(socket.id)));
-  socket.on('buy', () => withRoom(r => r.resolveBuy(socket.id)));
-  socket.on('decline', () => withRoom(r => r.resolveDecline(socket.id)));
-  socket.on('auctionBid', ({ amount }: { amount: number }) => withRoom(r => r.auctionBid(socket.id, amount)));
-  socket.on('auctionPass', () => withRoom(r => r.auctionPass(socket.id)));
-  socket.on('build', ({ propId }: { propId: number }) => withRoom(r => r.build(socket.id, propId)));
-  socket.on('sell', ({ propId }: { propId: number }) => withRoom(r => r.sellBuilding(socket.id, propId)));
-  socket.on('mortgage', ({ propId }: { propId: number }) => withRoom(r => r.mortgage(socket.id, propId)));
-  socket.on('unmortgage', ({ propId }: { propId: number }) => withRoom(r => r.unmortgage(socket.id, propId)));
-  socket.on('proposeTrade', (data: any) => withRoom(r => r.proposeTrade(socket.id, data)));
-  socket.on('respondTrade', ({ accept }: { accept: boolean }) => withRoom(r => r.respondTrade(socket.id, accept)));
-  socket.on('payFine', () => withRoom(r => r.payFine(socket.id)));
-  socket.on('useJailCard', () => withRoom(r => r.useJailCard(socket.id)));
-  socket.on('endTurn', () => withRoom(r => r.endTurn(socket.id)));
+  socket.on('startGame',    () => withRoom((r, pid) => r.start(pid)));
+  socket.on('roll',         () => withRoom((r, pid) => r.roll(pid)));
+  socket.on('buy',          () => withRoom((r, pid) => r.resolveBuy(pid)));
+  socket.on('decline',      () => withRoom((r, pid) => r.resolveDecline(pid)));
+  socket.on('auctionBid',   ({ amount }) => withRoom((r, pid) => r.auctionBid(pid, amount)));
+  socket.on('auctionPass',  () => withRoom((r, pid) => r.auctionPass(pid)));
+  socket.on('build',        ({ propId }) => withRoom((r, pid) => r.build(pid, propId)));
+  socket.on('sell',         ({ propId }) => withRoom((r, pid) => r.sellBuilding(pid, propId)));
+  socket.on('mortgage',     ({ propId }) => withRoom((r, pid) => r.mortgage(pid, propId)));
+  socket.on('unmortgage',   ({ propId }) => withRoom((r, pid) => r.unmortgage(pid, propId)));
+  socket.on('proposeTrade', (data) => withRoom((r, pid) => r.proposeTrade(pid, data)));
+  socket.on('respondTrade', ({ accept }) => withRoom((r, pid) => r.respondTrade(pid, accept)));
+  socket.on('payFine',      () => withRoom((r, pid) => r.payFine(pid)));
+  socket.on('useJailCard',  () => withRoom((r, pid) => r.useJailCard(pid)));
+  socket.on('endTurn',      () => withRoom((r, pid) => r.endTurn(pid)));
   socket.on('requestState', () => withRoom(() => {}));
 
   socket.on('disconnect', () => {
